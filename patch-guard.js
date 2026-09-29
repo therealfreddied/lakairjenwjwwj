@@ -9,7 +9,7 @@
  *   3. Dashboard-hidden models excluded — PROVIDER-SCOPED (fixes v1 cross-provider leak)
  *      honoring hiddenModalities.chat precedence exactly like the app
  *   4. auto/* hidden by default (?include_auto=true shows them)
- *   5. no-think/* hidden when the dashboard hideNoThinkVariants setting is on
+ *   5. no-think/* hidden by default (?include_no_think=true shows them)
  *   6. Inactive/hidden user combos excluded; active combos kept
  *
  * Idempotent: always resets from the clean .orig.bak backup before injecting.
@@ -210,7 +210,9 @@ function v2GetFilterState() {
     }
 
     // 5. Dashboard settings (stored JSON-encoded in key_value namespace='settings')
-    let hideNoThink = false;
+    // hideNoThinkVariants is now redundant for /v1/models (no-think/* is always
+    // hidden by default), but still read for forward-compatibility.
+    let hideNoThink = true;
     try {
       const srow = db
         .prepare("SELECT value FROM key_value WHERE namespace = 'settings' AND key = 'hideNoThinkVariants'")
@@ -244,6 +246,9 @@ function wrapWithModelsFilter(listener) {
       rawUrl.indexOf("include_auto=true") >= 0 ||
       rawUrl.indexOf("auto=true") >= 0 ||
       rawUrl.indexOf("virtual=true") >= 0;
+    const includeNoThink =
+      rawUrl.indexOf("include_no_think=true") >= 0 ||
+      rawUrl.indexOf("no_think=true") >= 0;
 
     res.write = function (chunk, ...args) {
       if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -272,8 +277,9 @@ function wrapWithModelsFilter(listener) {
                 const prefix = slash > 0 ? id.slice(0, slash) : "";
                 const leaf = slash > 0 ? id.slice(slash + 1) : id;
 
-                // 1. no-think/* gateway variants (dashboard setting)
-                if (hideNoThink && prefix === "no-think") return false;
+                // 1. no-think/* gateway variants: hidden by default,
+                //    shown with ?include_no_think=true
+                if (prefix === "no-think") return includeNoThink;
 
                 // 2. auto/* virtual combos: hidden unless ?include_auto=true
                 if (prefix === "auto") return includeAuto;
@@ -341,7 +347,7 @@ console.log("Filter injected successfully");
 console.log("  - Active providers + provider nodes only");
 console.log("  - Provider-scoped dashboard hidden models (hiddenModalities aware)");
 console.log("  - auto/* hidden by default (use ?include_auto=true to show)");
-console.log("  - no-think/* gated by the hideNoThinkVariants dashboard setting");
+console.log("  - no-think/* hidden by default (use ?include_no_think=true to show)");
 
 if (process.env.SKIP_RESTART !== "1") {
   try {
